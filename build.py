@@ -46,18 +46,37 @@ def _get_vcvars_path(name='64'):
 
     As of VS 2017, name can be one of: 32, 64, all, amd64_x86, x86_amd64
     """
-    vswhere_exe = '%ProgramFiles(x86)%\\Microsoft Visual Studio\\Installer\\vswhere.exe'
-    result = subprocess.run(
-        '"{}" -prerelease -latest -property installationPath'.format(vswhere_exe),
-        shell=True,
-        check=True,
-        stdout=subprocess.PIPE,
-        universal_newlines=True)
-    vcvars_path = Path(result.stdout.strip(), 'VC/Auxiliary/Build/vcvars{}.bat'.format(name))
-    if not vcvars_path.exists():
-        raise RuntimeError(
-            'Could not find vcvars batch script in expected location: {}'.format(vcvars_path))
-    return vcvars_path
+    vswhere_exe = os.path.join(
+        os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)'),
+        r'Microsoft Visual Studio\Installer\vswhere.exe'
+    )
+
+    # Try vswhere first
+    if os.path.exists(vswhere_exe):
+        result = subprocess.run(
+            [vswhere_exe, '-prerelease', '-all', '-latest', '-property', 'installationPath'],
+            stdout=subprocess.PIPE,
+            universal_newlines=True
+        )
+        install_path = result.stdout.strip()
+        if install_path:
+            vcvars_path = Path(install_path, 'VC/Auxiliary/Build/vcvars{}.bat'.format(name))
+            if vcvars_path.exists():
+                return vcvars_path
+
+    # Fallback: search known version folders (handles VS 2026/v18 and older)
+    base = Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')) \
+        / 'Microsoft Visual Studio'
+    for version in ['18', '2022', '2019', '2017']:
+        for edition in ['BuildTools', 'Enterprise', 'Professional', 'Community']:
+            vcvars_path = base / version / edition / 'VC/Auxiliary/Build' / \
+                'vcvars{}.bat'.format(name)
+            if vcvars_path.exists():
+                return vcvars_path
+
+    raise RuntimeError(
+        'Could not find vcvars{}.bat. Is the C++ workload installed?'.format(name)
+    )
 
 
 def _run_build_process(*args, **kwargs):
